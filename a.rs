@@ -1,28 +1,65 @@
-mod inc;
-
 use std::io;
 use std::str::Chars;
 use std::iter::Peekable;
 use std::fmt::Formatter;
 use std::fmt::Error;
 use std::fmt::Debug;
+use std::cmp::Ordering;
+use std::cmp::min;
+use std::cmp::max;
 
 #[derive(Clone)]
 #[derive(Copy)]
+#[derive(PartialEq)]
+#[derive(Eq)]
 struct TextPosition {
     line: usize,
     col: usize,
 }
 
+impl PartialOrd for TextPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TextPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.line < other.line {
+            Ordering::Less
+        } else if self.line > other.line {
+            Ordering::Greater
+        } else if self.col < other.col {
+            Ordering::Less
+        } else if self.col > other.col {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
 #[derive(Clone)]
 #[derive(Copy)]
+#[derive(PartialEq)]
+#[derive(Eq)]
 struct TextSpan {
     start: TextPosition,
     end: TextPosition,
 }
 
+
 impl TextSpan {
-    #[allow(unused)]
+    fn add(self, other: TextSpan) -> Self {
+        let start = min(self.start, other.start);
+        let end = max(self.end, other.end);
+
+        Self {
+            start: start,
+            end: end,
+        }
+    }
+
     fn new(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self {
         Self {
             start: TextPosition{ line: start_line, col: start_col },
@@ -30,14 +67,14 @@ impl TextSpan {
         }
     }
 
-    #[allow(unused)]
     fn new0() -> Self {
-        TextSpan::new(0,0,0,0)
+        Self::new(0,0,0,0)
     }
 }
 
 impl Debug for TextSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        // return write!(f, "");
         if self.start.line == self.end.line {
             write!(f, "{}#{}-{}", self.start.line, self.start.col, self.end.col)
         } else {
@@ -185,9 +222,36 @@ impl Printable for Vec<Token> {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum AST {
+    Err(TextSpan, String),
     Val(TextSpan, i64),
     Sym(TextSpan, String),
     App(TextSpan, Box<AST>, Box<AST>),
+}
+
+impl AST {
+    fn name(token: Token) -> String {
+        match token {
+            Token::INT(_, _) => String::from("INT"),
+            Token::ID(_, _) => String::from("ID"),
+            Token::SPECIAL(_, _) => String::from("SPECIAL"),
+            Token::INVALID(_, _) => String::from("INVALID"),
+            Token::LPAREN(_) => String::from("LPAREN"),
+            Token::RPAREN(_) => String::from("RPAREN"),
+        }
+    }
+}
+
+impl TextSpan {
+    fn from(token: Token) -> Self {
+        match token {
+            Token::INT(span, _) => span,
+            Token::ID(span, _) => span,
+            Token::SPECIAL(span, _) => span,
+            Token::INVALID(span, _) => span,
+            Token::LPAREN(span) => span,
+            Token::RPAREN(span) => span,
+        }
+    }
 }
 
 impl Printable for AST {
@@ -196,21 +260,47 @@ impl Printable for AST {
     }
 }
 
-#[allow(unused)]
-fn parse(tokens: &Vec<Token>) -> AST {
-    tokens.print();
+// Val :=   <INT>
+// LHS :=   <ID> | <Sp>
+// E   :=     Val | (LHS Val)
 
-    match &tokens[0] {
-        Token::ID(span, s) => AST::Sym(*span, s.clone()),
-        _ => todo!()
-    }
+fn parse_e(mut tokens: std::slice::Iter<Token>) -> (std::slice::Iter<Token>, AST) {
+    let result = match tokens.next() {
+        None => AST::Err(TextSpan::new0(), String::from("End of input!")),
+        Some(token) =>
+            match token {
+                Token::INT(span, n) => AST::Val(*span, n.clone()),
+                Token::ID(span, s) => AST::Sym(*span, s.clone()),
+                Token::SPECIAL(span, s) => AST::Sym(*span, s.clone()),
+                Token::LPAREN(span) => {
+                    let ast1;
+                    (tokens, ast1) = parse_e(tokens);
+                    let ast2;
+                    (tokens, ast2) = parse_e(tokens);
+                    match tokens.next() {
+                        None => AST::Err(TextSpan::new0(), String::from("End of input when expected right parens!")),
+                        Some(closing) => match closing {
+                            Token::RPAREN(span2) => AST::App(span.add(*span2), Box::new(ast1), Box::new(ast2)),
+                            t => AST::Err(TextSpan::new0(), format!("Expected RPAREN, found {:?}", t)),
+                        },
+                    }
+                }
+                t => AST::Err(TextSpan::from(t.clone()), format!("Expected INT, ID, or LPAREN, found {}", AST::name(t.clone()))),
+            }
+    };
+    (tokens, result)
 }
 
+#[allow(unused)]
+fn parse_tokens(tokens: &Vec<Token>) -> AST {
+    let (tokens, ast) = parse_e(tokens.iter());
+    ast
+}
 
 fn main() -> io::Result<()> {
-    let program = String::from("hello \n(5+4) s; 4\n hello \n");
+    let program = String::from("((\n+ 1) \n1)");//  hello \n(5+4) s; 4\n hello \n");
     let tokens = lex_string(&program, 0);
-    let ast = parse(&tokens);
+    let ast = parse_tokens(&tokens);
     ast.print();
 
 
