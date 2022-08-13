@@ -1,17 +1,17 @@
-use std::io;
-use std::str::Chars;
-use std::iter::Peekable;
-use std::fmt::Formatter;
-use std::fmt::Error;
-use std::fmt::Debug;
-use std::cmp::Ordering;
-use std::cmp::min;
 use std::cmp::max;
+use std::cmp::min;
+use std::cmp::Ordering;
+use std::collections::HashSet;
+use std::env;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Error;
+use std::fmt::Formatter;
+use std::io;
+use std::iter::Peekable;
+use std::str::Chars;
 
-#[derive(Clone)]
-#[derive(Copy)]
-#[derive(PartialEq)]
-#[derive(Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct TextPosition {
     line: usize,
     col: usize,
@@ -39,15 +39,11 @@ impl Ord for TextPosition {
     }
 }
 
-#[derive(Clone)]
-#[derive(Copy)]
-#[derive(PartialEq)]
-#[derive(Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct TextSpan {
     start: TextPosition,
     end: TextPosition,
 }
-
 
 impl TextSpan {
     fn add(self, other: TextSpan) -> Self {
@@ -62,43 +58,74 @@ impl TextSpan {
 
     fn new(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self {
         Self {
-            start: TextPosition{ line: start_line, col: start_col },
-            end: TextPosition{ line: end_line, col: end_col },
+            start: TextPosition {
+                line: start_line,
+                col: start_col,
+            },
+            end: TextPosition {
+                line: end_line,
+                col: end_col,
+            },
         }
     }
 
     fn new0() -> Self {
-        Self::new(0,0,0,0)
+        Self::new(0, 0, 0, 0)
+    }
+}
+
+impl Display for TextSpan {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(
+            f,
+            "[{},{}]-[{},{}]",
+            self.start.line, self.start.col, self.end.line, self.end.col
+        )
     }
 }
 
 impl Debug for TextSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        // return write!(f, "");
-        if self.start.line == self.end.line {
-            write!(f, "{}#{}-{}", self.start.line, self.start.col, self.end.col)
-        } else {
-            write!(f, "{}-{}#{}-{}", self.start.line, self.end.line, self.start.col, self.end.col)
-        }
+        write!(
+            f,
+            "[{},{}]-[{},{}]",
+            self.start.line, self.start.col, self.end.line, self.end.col
+        )
     }
 }
 
-#[derive(Debug)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Token {
     INT(TextSpan, i64),
     ID(TextSpan, String),
     SPECIAL(TextSpan, String),
+    ExpressionSeparator(TextSpan),
     INVALID(TextSpan, String),
     LPAREN(TextSpan),
     RPAREN(TextSpan),
 }
+impl Token {
+    fn name(self: Token) -> String {
+        match self {
+            Token::INT(_, _) => String::from("INT"),
+            Token::ID(_, _) => String::from("ID"),
+            Token::SPECIAL(_, _) => String::from("SPECIAL"),
+            Token::ExpressionSeparator(_) => String::from("EXPRESSION_SEPARATOR"),
+            Token::INVALID(_, _) => String::from("INVALID"),
+            Token::LPAREN(_) => String::from("LPAREN"),
+            Token::RPAREN(_) => String::from("RPAREN"),
+        }
+    }
+}
 
 fn read_int(mut chars: CountingChars) -> (CountingChars, Token) {
-    let start = TextPosition{line: chars.line, col: chars.col};
+    let start = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
     let mut n: i64 = 0;
     while let Some(c) = chars.peek() {
-        if c.is_numeric() && c.to_owned() as i64 - 48 < 10{
+        if c.is_numeric() && c.to_owned() as i64 - 48 < 10 {
             let m = c.to_owned() as i64 - 48;
             n *= 10;
             n += m;
@@ -107,12 +134,27 @@ fn read_int(mut chars: CountingChars) -> (CountingChars, Token) {
             break;
         }
     }
-    let end = TextPosition{line: chars.line, col: chars.col};
-    (chars, Token::INT(TextSpan{ start: start, end: end }, n))
+    let end = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
+    (
+        chars,
+        Token::INT(
+            TextSpan {
+                start: start,
+                end: end,
+            },
+            n,
+        ),
+    )
 }
 
 fn read_id(mut chars: CountingChars) -> (CountingChars, Token) {
-    let start = TextPosition{line: chars.line, col: chars.col};
+    let start = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
     let mut s: String = String::new();
     while let Some(c) = chars.peek() {
         if c.is_alphabetic() || c.is_numeric() && c.to_owned() as u32 - 48 >= 10 {
@@ -122,18 +164,67 @@ fn read_id(mut chars: CountingChars) -> (CountingChars, Token) {
             break;
         }
     }
-    let end = TextPosition{line: chars.line, col: chars.col};
-    (chars, Token::ID(TextSpan{ start: start, end: end }, s))
+    let end = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
+    (
+        chars,
+        Token::ID(
+            TextSpan {
+                start: start,
+                end: end,
+            },
+            s,
+        ),
+    )
 }
 
 fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
-    let start = TextPosition{line: chars.line, col: chars.col};
+    let start = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
     if let Some(c) = chars.next() {
-        let end = TextPosition{line: chars.line, col: chars.col};
-        (chars, Token::SPECIAL(TextSpan{ start: start, end: end }, c.to_string()))
+        let end = TextPosition {
+            line: chars.line,
+            col: chars.col,
+        };
+        if c == ';' {
+            (
+                chars,
+                Token::ExpressionSeparator(TextSpan {
+                    start: start,
+                    end: end,
+                }),
+            )
+        } else {
+            (
+                chars,
+                Token::SPECIAL(
+                    TextSpan {
+                        start: start,
+                        end: end,
+                    },
+                    c.to_string(),
+                ),
+            )
+        }
     } else {
-        let end = TextPosition{line: chars.line, col: chars.col};
-        (chars, Token::INVALID(TextSpan{ start: start, end: end }, String::new()))
+        let end = TextPosition {
+            line: chars.line,
+            col: chars.col,
+        };
+        (
+            chars,
+            Token::INVALID(
+                TextSpan {
+                    start: start,
+                    end: end,
+                },
+                String::new(),
+            ),
+        )
     }
 }
 
@@ -145,7 +236,7 @@ struct CountingChars<'lexing> {
 
 impl<'lexing> CountingChars<'lexing> {
     fn next(&mut self) -> Option<char> {
-        if let Some('\n') = self.chars.peek(){
+        if let Some('\n') = self.chars.peek() {
             self.line += 1;
             self.col = 0;
         } else {
@@ -161,21 +252,43 @@ impl<'lexing> CountingChars<'lexing> {
 
 fn lex_string(s: &str, line_offset: usize) -> Vec<Token> {
     let mut v: Vec<Token> = Vec::new();
-    let mut it = CountingChars{ chars: s.chars().peekable(), line: line_offset, col: 0 };
+    let mut it = CountingChars {
+        chars: s.chars().peekable(),
+        line: line_offset,
+        col: 0,
+    };
     while let Some(c) = it.peek() {
         let token: Token;
         if c.is_whitespace() {
             it.next();
         } else if *c == '(' {
-            let start = TextPosition{line: it.line, col: it.col};
+            let start = TextPosition {
+                line: it.line,
+                col: it.col,
+            };
             it.next();
-            let end = TextPosition{line: it.line, col: it.col};
-            v.push(Token::LPAREN(TextSpan{ start: start, end: end }));
+            let end = TextPosition {
+                line: it.line,
+                col: it.col,
+            };
+            v.push(Token::LPAREN(TextSpan {
+                start: start,
+                end: end,
+            }));
         } else if *c == ')' {
-            let start = TextPosition{line: it.line, col: it.col};
+            let start = TextPosition {
+                line: it.line,
+                col: it.col,
+            };
             it.next();
-            let end = TextPosition{line: it.line, col: it.col};
-            v.push(Token::RPAREN(TextSpan{ start: start, end: end }));
+            let end = TextPosition {
+                line: it.line,
+                col: it.col,
+            };
+            v.push(Token::RPAREN(TextSpan {
+                start: start,
+                end: end,
+            }));
         } else if c.is_numeric() && c.to_owned() as u32 - 48 < 10 {
             (it, token) = read_int(it);
             v.push(token);
@@ -222,34 +335,70 @@ impl Printable for Vec<Token> {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum AST {
+    // TODO rename to expression, make one enum for every semantic unit
     Err(TextSpan, String),
     Val(TextSpan, i64),
     Sym(TextSpan, String),
+    // TODO Abstraction
     App(TextSpan, Box<AST>, Box<AST>),
+    // TODO move this
+    Expressions(TextSpan, Vec<AST>),
 }
 
 impl AST {
-    fn name(token: Token) -> String {
-        match token {
-            Token::INT(_, _) => String::from("INT"),
-            Token::ID(_, _) => String::from("ID"),
-            Token::SPECIAL(_, _) => String::from("SPECIAL"),
-            Token::INVALID(_, _) => String::from("INVALID"),
-            Token::LPAREN(_) => String::from("LPAREN"),
-            Token::RPAREN(_) => String::from("RPAREN"),
+    fn has_errors(&self) -> bool {
+        match self {
+            AST::Err(_, _) => true,
+            AST::App(_, e1, e2) => e1.has_errors() || e2.has_errors(),
+            AST::Expressions(_, exprs) => {
+                for e in exprs.iter() {
+                    if e.has_errors() {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn report_errors(&self) -> () {
+        match self {
+            AST::Err(_, _) => println!("{}", self.pretty_string()),
+            AST::App(_, e1, e2) => {
+                e1.report_errors();
+                e2.report_errors();
+            }
+            AST::Expressions(_, exprs) => {
+                for e in exprs.iter() {
+                    e.report_errors();
+                }
+            }
+            _ => (),
         }
     }
 }
 
 impl TextSpan {
-    fn from(token: Token) -> Self {
+    fn from_token(token: Token) -> Self {
         match token {
             Token::INT(span, _) => span,
             Token::ID(span, _) => span,
             Token::SPECIAL(span, _) => span,
+            Token::ExpressionSeparator(span) => span,
             Token::INVALID(span, _) => span,
             Token::LPAREN(span) => span,
             Token::RPAREN(span) => span,
+        }
+    }
+
+    fn from_ast(ast: &AST) -> Self {
+        match ast {
+            AST::Err(span, _) => span.clone(),
+            AST::Val(span, _) => span.clone(),
+            AST::Sym(span, _) => span.clone(),
+            AST::App(span, _, _) => span.clone(),
+            AST::Expressions(span, _) => span.clone(),
         }
     }
 }
@@ -260,50 +409,170 @@ impl Printable for AST {
     }
 }
 
-// Val :=   <INT>
-// LHS :=   <ID> | <Sp>
-// E   :=     Val | (LHS Val)
+trait PrettyPrint {
+    fn pretty_print(&self);
+    fn pretty_string(&self) -> String;
+}
 
-fn parse_e(mut tokens: std::slice::Iter<Token>) -> (std::slice::Iter<Token>, AST) {
+impl PrettyPrint for AST {
+    fn pretty_print(&self) -> () {
+        println!("{}", self.pretty_string());
+    }
+
+    fn pretty_string(&self) -> String {
+        match self {
+            AST::Err(span, reason) => format!("{:?}", span) + "\t" + reason,
+            AST::Val(_, i) => i.to_string(),
+            AST::Sym(_, s) => String::from(s),
+            AST::App(_, lhs, rhs) => [
+                String::from("("),
+                lhs.pretty_string(),
+                String::from(" "),
+                rhs.pretty_string(),
+                String::from(")"),
+            ]
+            .join(""),
+            AST::Expressions(_, exprs) => exprs
+                .iter()
+                .map(|e| e.pretty_string())
+                .collect::<Vec<_>>()
+                .join(";\n"),
+        }
+    }
+}
+
+// Val  :=  <INT>
+// LHS  :=  <String> | <Special>
+// E    :=  Val | (LHS Val)
+// Stms :=  E (';' E)*
+
+fn parse_expression(mut tokens: MyIt) -> (MyIt, AST) {
     let result = match tokens.next() {
-        None => AST::Err(TextSpan::new0(), String::from("End of input!")),
-        Some(token) =>
-            match token {
-                Token::INT(span, n) => AST::Val(*span, n.clone()),
-                Token::ID(span, s) => AST::Sym(*span, s.clone()),
-                Token::SPECIAL(span, s) => AST::Sym(*span, s.clone()),
-                Token::LPAREN(span) => {
-                    let ast1;
-                    (tokens, ast1) = parse_e(tokens);
-                    let ast2;
-                    (tokens, ast2) = parse_e(tokens);
-                    match tokens.next() {
-                        None => AST::Err(TextSpan::new0(), String::from("End of input when expected right parens!")),
-                        Some(closing) => match closing {
-                            Token::RPAREN(span2) => AST::App(span.add(*span2), Box::new(ast1), Box::new(ast2)),
-                            t => AST::Err(TextSpan::new0(), format!("Expected RPAREN, found {:?}", t)),
-                        },
-                    }
+        None => AST::Err(
+            TextSpan::new0(),
+            String::from("Expeted expression but reached end of input!"),
+        ),
+        Some(token) => match token {
+            Token::INT(span, n) => AST::Val(*span, n.clone()),
+            Token::ID(span, s) => AST::Sym(*span, s.clone()),
+            Token::SPECIAL(span, s) => AST::Sym(*span, s.clone()),
+            Token::LPAREN(span) => {
+                let start_span = span.clone();
+                let ast1;
+                (tokens, ast1) = parse_expression(tokens);
+                let ast2;
+                (tokens, ast2) = parse_expression(tokens);
+                match tokens.next() {
+                    None => AST::Err(
+                        TextSpan::from_ast(&ast2),
+                        String::from("Expected right parens but reached end of input!"),
+                    ),
+                    Some(closing) => match closing {
+                        Token::RPAREN(end_span) => {
+                            AST::App(start_span.add(*end_span), Box::new(ast1), Box::new(ast2))
+                        }
+                        t => AST::Err(
+                            TextSpan::from_token(t.clone()),
+                            format!(
+                                "Expected RPAREN, found {} at {}",
+                                t.clone().name(),
+                                TextSpan::from_token(t.clone())
+                            ),
+                        ),
+                    },
                 }
-                t => AST::Err(TextSpan::from(t.clone()), format!("Expected INT, ID, or LPAREN, found {}", AST::name(t.clone()))),
             }
+            t => AST::Err(
+                TextSpan::from_token(t.clone()),
+                format!("Expected expression but found {}", t.clone().name()),
+            ),
+        },
     };
     (tokens, result)
 }
 
+struct MyIt<'parsing> {
+    tokens: Peekable<std::slice::Iter<'parsing, Token>>,
+}
+
+impl<'parsing> MyIt<'parsing> {
+    fn next(&mut self) -> Option<&Token> {
+        self.tokens.next().clone()
+    }
+
+    fn peek(&mut self) -> Option<&&Token> {
+        self.tokens.peek().clone()
+    }
+}
+
 #[allow(unused)]
-fn parse_tokens(tokens: &Vec<Token>) -> AST {
-    let (tokens, ast) = parse_e(tokens.iter());
-    ast
+fn parse_program(tokens: &Vec<Token>) -> AST {
+    let mut it = MyIt {
+        tokens: tokens.iter().peekable(),
+    };
+    let mut expressions: Vec<AST> = Vec::new();
+
+    let expr;
+    (it, expr) = parse_expression(it);
+    expressions.push(expr);
+
+    while let Some(token) = it.peek().clone() {
+        match token {
+            Token::ExpressionSeparator(span) => {
+                it.next();
+                ()
+            }
+            _ => {
+                let expr = AST::Err(
+                    TextSpan::from_token((**token).clone()),
+                    format!(
+                        "Expected statement separator, found {}",
+                        (**token).clone().name()
+                    ),
+                );
+                expressions.push(expr);
+            }
+        }
+        let expr;
+        (it, expr) = parse_expression(it);
+        expressions.push(expr);
+    }
+    let span_start = if let Some(e) = expressions.first() {
+        TextSpan::from_ast(e)
+    } else {
+        TextSpan::new0()
+    };
+    let span_end = if let Some(e) = expressions.last() {
+        TextSpan::from_ast(e)
+    } else {
+        TextSpan::new0()
+    };
+    AST::Expressions(span_start.add(span_end), expressions)
 }
 
 fn main() -> io::Result<()> {
-    let program = String::from("((\n+ 1) \n1)");//  hello \n(5+4) s; 4\n hello \n");
-    let tokens = lex_string(&program, 0);
-    let ast = parse_tokens(&tokens);
-    ast.print();
+    let args = env::args().collect::<HashSet<_>>();
+    let source = String::from("0; ((+ 111) 222); 333; 444; (+ 555) ");
+    let tokens = lex_string(&source, 0);
+    if args.contains("--lex") {
+        tokens.print();
+        return Ok(());
+    }
+    let program = parse_program(&tokens);
+    if program.has_errors() {
+        println!("{}", source);
+        println!("########################");
+        program.print();
+        println!("########################");
+        program.pretty_print();
+        println!("########################");
+        program.report_errors();
+        return Ok(());
+    }
+    if args.contains("--parse") || args.contains("--format") {
+        program.pretty_print();
+        return Ok(());
+    }
 
-
-    // lex_interactive()?.print();
     Ok(())
 }
