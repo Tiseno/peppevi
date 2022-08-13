@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Error;
 use std::fmt::Formatter;
+use std::fs;
 use std::io;
 use std::iter::Peekable;
 use std::str::Chars;
@@ -79,7 +80,10 @@ impl Display for TextSpan {
         write!(
             f,
             "[{},{}]-[{},{}]",
-            self.start.line, self.start.col, self.end.line, self.end.col
+            self.start.line + 1,
+            self.start.col + 1,
+            self.end.line + 1,
+            self.end.col + 1
         )
     }
 }
@@ -89,7 +93,10 @@ impl Debug for TextSpan {
         write!(
             f,
             "[{},{}]-[{},{}]",
-            self.start.line, self.start.col, self.end.line, self.end.col
+            self.start.line + 1,
+            self.start.col + 1,
+            self.end.line + 1,
+            self.end.col + 1
         )
     }
 }
@@ -104,8 +111,9 @@ enum Token {
     LPAREN(TextSpan),
     RPAREN(TextSpan),
 }
+
 impl Token {
-    fn name(self: Token) -> String {
+    fn name(self: &Token) -> String {
         match self {
             Token::INT(_, _) => String::from("INT"),
             Token::ID(_, _) => String::from("ID"),
@@ -362,16 +370,26 @@ impl AST {
         }
     }
 
-    fn report_errors(&self) -> () {
+    // TODO replace TextSpan with metadata with file path instead
+    fn report_errors(&self, file_path: String) -> () {
         match self {
-            AST::Err(_, _) => println!("{}", self.pretty_string()),
+            AST::Err(span, reason) => println!(
+                "{}:{}-{}:{}-{}: {} {}",
+                file_path,
+                span.start.line + 1,
+                span.start.col + 1,
+                span.end.line + 2,
+                span.end.col + 1,
+                "error:",
+                reason,
+            ),
             AST::App(_, e1, e2) => {
-                e1.report_errors();
-                e2.report_errors();
+                e1.report_errors(file_path.clone());
+                e2.report_errors(file_path);
             }
             AST::Expressions(_, exprs) => {
                 for e in exprs.iter() {
-                    e.report_errors();
+                    e.report_errors(file_path.clone());
                 }
             }
             _ => (),
@@ -380,7 +398,7 @@ impl AST {
 }
 
 impl TextSpan {
-    fn from_token(token: Token) -> Self {
+    fn from_token(token: &Token) -> Self {
         match token {
             Token::INT(span, _) => span,
             Token::ID(span, _) => span,
@@ -390,16 +408,18 @@ impl TextSpan {
             Token::LPAREN(span) => span,
             Token::RPAREN(span) => span,
         }
+        .clone()
     }
 
     fn from_ast(ast: &AST) -> Self {
         match ast {
-            AST::Err(span, _) => span.clone(),
-            AST::Val(span, _) => span.clone(),
-            AST::Sym(span, _) => span.clone(),
-            AST::App(span, _, _) => span.clone(),
-            AST::Expressions(span, _) => span.clone(),
+            AST::Err(span, _) => span,
+            AST::Val(span, _) => span,
+            AST::Sym(span, _) => span,
+            AST::App(span, _, _) => span,
+            AST::Expressions(span, _) => span,
         }
+        .clone()
     }
 }
 
@@ -446,11 +466,14 @@ impl PrettyPrint for AST {
 // E    :=  Val | (LHS Val)
 // Stms :=  E (';' E)*
 
-fn parse_expression(mut tokens: MyIt) -> (MyIt, AST) {
+fn parse_expression(parse_start_span: TextSpan, mut tokens: MyIt) -> (MyIt, AST) {
     let result = match tokens.next() {
+        // TODO ML peek here as we need to return early
+        // in case of a missing second expression in application
+        // because otherwise we skip the rparen token
         None => AST::Err(
-            TextSpan::new0(),
-            String::from("Expeted expression but reached end of input!"),
+            parse_start_span,
+            String::from("Expected expression but reached end of input!"),
         ),
         Some(token) => match token {
             Token::INT(span, n) => AST::Val(*span, n.clone()),
@@ -459,9 +482,10 @@ fn parse_expression(mut tokens: MyIt) -> (MyIt, AST) {
             Token::LPAREN(span) => {
                 let start_span = span.clone();
                 let ast1;
-                (tokens, ast1) = parse_expression(tokens);
+                (tokens, ast1) = parse_expression(start_span, tokens);
                 let ast2;
-                (tokens, ast2) = parse_expression(tokens);
+                // TODO ML this skips the rparen if there is no second expression
+                (tokens, ast2) = parse_expression(start_span, tokens);
                 match tokens.next() {
                     None => AST::Err(
                         TextSpan::from_ast(&ast2),
@@ -472,19 +496,15 @@ fn parse_expression(mut tokens: MyIt) -> (MyIt, AST) {
                             AST::App(start_span.add(*end_span), Box::new(ast1), Box::new(ast2))
                         }
                         t => AST::Err(
-                            TextSpan::from_token(t.clone()),
-                            format!(
-                                "Expected RPAREN, found {} at {}",
-                                t.clone().name(),
-                                TextSpan::from_token(t.clone())
-                            ),
+                            TextSpan::from_token(t),
+                            format!("Expected RPAREN, found {}", t.name(),),
                         ),
                     },
                 }
             }
             t => AST::Err(
-                TextSpan::from_token(t.clone()),
-                format!("Expected expression but found {}", t.clone().name()),
+                TextSpan::from_token(t),
+                format!("Expected expression but found {}", t.name()),
             ),
         },
     };
@@ -505,6 +525,7 @@ impl<'parsing> MyIt<'parsing> {
     }
 }
 
+// TODO ML this is not a program but some sort of unit or module
 #[allow(unused)]
 fn parse_program(tokens: &Vec<Token>) -> AST {
     let mut it = MyIt {
@@ -513,10 +534,11 @@ fn parse_program(tokens: &Vec<Token>) -> AST {
     let mut expressions: Vec<AST> = Vec::new();
 
     let expr;
-    (it, expr) = parse_expression(it);
+    (it, expr) = parse_expression(TextSpan::new0(), it);
     expressions.push(expr);
 
     while let Some(token) = it.peek().clone() {
+        let parse_start_span = TextSpan::from_token(token);
         match token {
             Token::ExpressionSeparator(span) => {
                 it.next();
@@ -524,17 +546,14 @@ fn parse_program(tokens: &Vec<Token>) -> AST {
             }
             _ => {
                 let expr = AST::Err(
-                    TextSpan::from_token((**token).clone()),
-                    format!(
-                        "Expected statement separator, found {}",
-                        (**token).clone().name()
-                    ),
+                    parse_start_span,
+                    format!("Expected EXPRESSION_SEPARATOR, found {}", token.name(),),
                 );
                 expressions.push(expr);
             }
         }
         let expr;
-        (it, expr) = parse_expression(it);
+        (it, expr) = parse_expression(parse_start_span, it);
         expressions.push(expr);
     }
     let span_start = if let Some(e) = expressions.first() {
@@ -550,29 +569,92 @@ fn parse_program(tokens: &Vec<Token>) -> AST {
     AST::Expressions(span_start.add(span_end), expressions)
 }
 
+fn print_version() {
+    println!("0.1.0");
+}
+
+fn print_usage() {
+    println!(
+        r#"Usage:
+    lall [options] file
+
+Options:
+    --help              Display this message
+    --lex               Only do lexing and print the tokens
+    --format            Parse and pretty print the source formatted
+    --parse             Parse and print AST
+    --check             Type check the program and report eventual errors
+    NYI --interpret     Run the program in interpreter mode
+    NYI --out           Name of output executable, if no out is provided, name of input source file is used
+"#
+    );
+}
+
 fn main() -> io::Result<()> {
-    let args = env::args().collect::<HashSet<_>>();
-    let source = String::from("0; ((+ 111) 222); 333; 444; (+ 555) ");
+    let arg_set = env::args().collect::<HashSet<_>>();
+    if arg_set.contains("--version") {
+        print_version();
+        return Ok(());
+    }
+    if arg_set.contains("--help") {
+        print_usage();
+        return Ok(());
+    }
+
+    let file_args = env::args()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter(|a| !a.starts_with("--"))
+        .collect::<Vec<_>>();
+
+    if file_args.len() < 2 {
+        print_usage();
+        std::process::exit(1);
+    }
+    let file_arg = &file_args[1];
+    let source = match fs::read_to_string(file_arg) {
+        Ok(source) => source,
+        _ => {
+            println!("Could not read '{}'", file_arg);
+            std::process::exit(1);
+        }
+    };
+
     let tokens = lex_string(&source, 0);
-    if args.contains("--lex") {
+    if arg_set.contains("--lex") {
         tokens.print();
         return Ok(());
     }
+
     let program = parse_program(&tokens);
     if program.has_errors() {
-        println!("{}", source);
-        println!("########################");
-        program.print();
-        println!("########################");
-        program.pretty_print();
-        println!("########################");
-        program.report_errors();
+        program.report_errors(String::from(file_arg));
+        // std::process::exit(1);
         return Ok(());
     }
-    if args.contains("--parse") || args.contains("--format") {
+
+    if arg_set.contains("--format") {
         program.pretty_print();
         return Ok(());
     }
 
-    Ok(())
+    if arg_set.contains("--parse") {
+        program.print();
+        return Ok(());
+    }
+
+    // let ir = type_check(&program);
+
+    if arg_set.contains("--check") {
+        return Ok(());
+    }
+
+    if arg_set.contains("--interpret") {
+        println!("--interpret is not implemented yet");
+        std::process::exit(1);
+    } else {
+        println!("{}", file_arg);
+        println!("Output executable is not implemented yet");
+        std::process::exit(1);
+    }
 }
