@@ -1,7 +1,6 @@
 
 defualt:
 	rustc -v a.rs -o lall
-	./lall --check hello.lal
 
 help:
 	clear

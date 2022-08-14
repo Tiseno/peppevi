@@ -311,8 +311,7 @@ fn lex_string(s: &str, line_offset: usize) -> Vec<Token> {
     v
 }
 
-#[allow(dead_code)]
-fn lex_interactive() -> io::Result<Vec<Token>> {
+fn lex_stdin() -> io::Result<Vec<Token>> {
     let mut v: Vec<Token> = Vec::new();
     let mut buffer = String::new();
     let stdin = io::stdin();
@@ -525,9 +524,8 @@ impl<'parsing> MyIt<'parsing> {
     }
 }
 
-// TODO ML this is not a program but some sort of unit or module
 #[allow(unused)]
-fn parse_program(tokens: &Vec<Token>) -> AST {
+fn parse_module(tokens: &Vec<Token>) -> AST {
     let mut it = MyIt {
         tokens: tokens.iter().peekable(),
     };
@@ -581,33 +579,52 @@ fn print_usage() {
 Options:
     --help              Display this message
     --lex               Only do lexing and print the tokens
-    --format            Parse and pretty print the source formatted
+    --format            Parse and print the formatted source to stdout
+    --stdin-format      Parse from stdin and print the formatted source to stdout
     --parse             Parse and print AST
-    --check             Type check the program and report eventual errors
-    NYI --interpret     Run the program in interpreter mode
-    NYI --out           Name of output executable, if no out is provided, name of input source file is used
+    --check             Type check the program
 "#
     );
 }
 
 fn main() -> io::Result<()> {
     let arg_set = env::args().collect::<HashSet<_>>();
+    let arg_vec = env::args().collect::<Vec<_>>();
+
     if arg_set.contains("--version") {
         print_version();
         return Ok(());
     }
+
     if arg_set.contains("--help") {
         print_usage();
         return Ok(());
     }
 
-    let file_args = env::args()
-        .collect::<Vec<_>>()
+    if arg_set.contains("--stdin-format") {
+        let lexed = lex_stdin();
+        match lexed {
+            Ok(tokens) => {
+                let module = parse_module(&tokens);
+                if module.has_errors() {
+                    std::process::exit(1);
+                }
+                module.pretty_print();
+                return Ok(());
+            }
+            _ => {
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let file_args = arg_vec
         .into_iter()
         .filter(|a| !a.starts_with("--"))
         .collect::<Vec<_>>();
 
     if file_args.len() < 2 {
+        println!("Expected file argument!");
         print_usage();
         std::process::exit(1);
     }
@@ -626,24 +643,24 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let program = parse_program(&tokens);
-    if program.has_errors() {
-        program.report_errors(String::from(file_arg));
-        // std::process::exit(1);
-        return Ok(());
+    let module = parse_module(&tokens);
+    if module.has_errors() {
+        module.report_errors(String::from(file_arg));
+        std::process::exit(1);
+        // return Ok(());
     }
 
     if arg_set.contains("--format") {
-        program.pretty_print();
+        module.pretty_print();
         return Ok(());
     }
 
     if arg_set.contains("--parse") {
-        program.print();
+        module.print();
         return Ok(());
     }
 
-    // let ir = type_check(&program);
+    // let ir = type_check(&module);
 
     if arg_set.contains("--check") {
         return Ok(());
