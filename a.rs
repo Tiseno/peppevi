@@ -574,7 +574,7 @@ fn print_version() {
 fn print_usage() {
     println!(
         r#"Usage:
-    lall [options] file
+    pvic [options] file
 
 Options:
     --help              Display this message

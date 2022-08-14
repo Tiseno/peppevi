@@ -1,34 +1,34 @@
 
 defualt:
-	rustc -v a.rs -o lall
+	rustc -v a.rs -o pvic
 
 help:
 	clear
-	rustc -v a.rs -o lall
-	./lall --help hello.lal
+	rustc -v a.rs -o pvic
+	./pvic --help hello.pvi
 
 lex:
 	clear
-	rustc -v a.rs -o lall
-	./lall --lex
+	rustc -v a.rs -o pvic
+	./pvic --lex
 
 format:
 	clear
-	rustc -v a.rs -o lall
-	./lall --format
+	rustc -v a.rs -o pvic
+	./pvic --format
 
 parse:
 	clear
-	rustc -v a.rs -o lall
-	./lall --parse
+	rustc -v a.rs -o pvic
+	./pvic --parse
 
 check:
 	clear
-	rustc -v a.rs -o lall
-	./lall --check
+	rustc -v a.rs -o pvic
+	./pvic --check
 
 interpret:
 	clear
-	rustc -v a.rs -o lall
-	./lall --interpret
+	rustc -v a.rs -o pvic
+	./pvic --interpret
 
