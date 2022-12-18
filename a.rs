@@ -106,7 +106,7 @@ enum Token {
     INT(TextSpan, i64),
     ID(TextSpan, String),
     SPECIAL(TextSpan, String),
-    ExpressionSeparator(TextSpan),
+    SEMICOLON(TextSpan),
     INVALID(TextSpan, String),
     LPAREN(TextSpan),
     RPAREN(TextSpan),
@@ -118,7 +118,7 @@ impl Token {
             Token::INT(_, _) => String::from("INT"),
             Token::ID(_, _) => String::from("ID"),
             Token::SPECIAL(_, _) => String::from("SPECIAL"),
-            Token::ExpressionSeparator(_) => String::from("EXPRESSION_SEPARATOR"),
+            Token::SEMICOLON(_) => String::from("EXPRESSION_SEPARATOR"),
             Token::INVALID(_, _) => String::from("INVALID"),
             Token::LPAREN(_) => String::from("LPAREN"),
             Token::RPAREN(_) => String::from("RPAREN"),
@@ -188,6 +188,45 @@ fn read_id(mut chars: CountingChars) -> (CountingChars, Token) {
     )
 }
 
+fn read_paren(mut chars: CountingChars) -> (CountingChars, Token) {
+    let start = TextPosition {
+        line: chars.line,
+        col: chars.col,
+    };
+
+    let token = if let Some(c) = chars.next() {
+        let end = TextPosition {
+            line: chars.line,
+            col: chars.col,
+        };
+        if c == '(' {
+            Token::LPAREN(TextSpan {
+                start: start,
+                end: end,
+            })
+        } else {
+            Token::RPAREN(TextSpan {
+                start: start,
+                end: end,
+            })
+        }
+    } else {
+        let end = TextPosition {
+            line: chars.line,
+            col: chars.col,
+        };
+        Token::INVALID(
+            TextSpan {
+                start: start,
+                end: end,
+            },
+            String::from("Lex tried to read parenthesis but found nothing."),
+        )
+    };
+
+    (chars, token)
+}
+
 fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
     let start = TextPosition {
         line: chars.line,
@@ -201,7 +240,7 @@ fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
         if c == ';' {
             (
                 chars,
-                Token::ExpressionSeparator(TextSpan {
+                Token::SEMICOLON(TextSpan {
                     start: start,
                     end: end,
                 }),
@@ -230,7 +269,7 @@ fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
                     start: start,
                     end: end,
                 },
-                String::new(),
+                String::from("Lex tried to read special but found nothing."),
             ),
         )
     }
@@ -259,7 +298,7 @@ impl<'lexing> CountingChars<'lexing> {
 }
 
 fn lex_string(s: &str, line_offset: usize) -> Vec<Token> {
-    let mut v: Vec<Token> = Vec::new();
+    let mut tokens: Vec<Token> = Vec::new();
     let mut it = CountingChars {
         chars: s.chars().peekable(),
         line: line_offset,
@@ -269,50 +308,25 @@ fn lex_string(s: &str, line_offset: usize) -> Vec<Token> {
         let token: Token;
         if c.is_whitespace() {
             it.next();
-        } else if *c == '(' {
-            let start = TextPosition {
-                line: it.line,
-                col: it.col,
-            };
-            it.next();
-            let end = TextPosition {
-                line: it.line,
-                col: it.col,
-            };
-            v.push(Token::LPAREN(TextSpan {
-                start: start,
-                end: end,
-            }));
-        } else if *c == ')' {
-            let start = TextPosition {
-                line: it.line,
-                col: it.col,
-            };
-            it.next();
-            let end = TextPosition {
-                line: it.line,
-                col: it.col,
-            };
-            v.push(Token::RPAREN(TextSpan {
-                start: start,
-                end: end,
-            }));
+        } else if *c == '(' || *c == ')' {
+            (it, token) = read_paren(it);
+            tokens.push(token);
         } else if c.is_numeric() && c.to_owned() as u32 - 48 < 10 {
             (it, token) = read_int(it);
-            v.push(token);
+            tokens.push(token);
         } else if c.is_alphabetic() || c.is_numeric() && c.to_owned() as u32 - 48 >= 10 {
             (it, token) = read_id(it);
-            v.push(token);
+            tokens.push(token);
         } else {
             (it, token) = read_special(it);
-            v.push(token);
+            tokens.push(token);
         }
     }
-    v
+    tokens
 }
 
 fn lex_stdin() -> io::Result<Vec<Token>> {
-    let mut v: Vec<Token> = Vec::new();
+    let mut tokens: Vec<Token> = Vec::new();
     let mut buffer = String::new();
     let stdin = io::stdin();
 
@@ -320,11 +334,11 @@ fn lex_stdin() -> io::Result<Vec<Token>> {
     let mut line_offset = 0;
     while bytes_read > 0 {
         bytes_read = stdin.read_line(&mut buffer)?;
-        v.append(&mut lex_string(&buffer, line_offset));
+        tokens.append(&mut lex_string(&buffer, line_offset));
         buffer = String::from("");
         line_offset += 1;
     }
-    Ok(v)
+    Ok(tokens)
 }
 
 trait Printable {
@@ -402,7 +416,7 @@ impl TextSpan {
             Token::INT(span, _) => span,
             Token::ID(span, _) => span,
             Token::SPECIAL(span, _) => span,
-            Token::ExpressionSeparator(span) => span,
+            Token::SEMICOLON(span) => span,
             Token::INVALID(span, _) => span,
             Token::LPAREN(span) => span,
             Token::RPAREN(span) => span,
@@ -459,10 +473,16 @@ impl PrettyPrint for AST {
         }
     }
 }
-
+// v1
 // Val  :=  <INT>
 // LHS  :=  <String> | <Special>
 // E    :=  Val | (LHS Val)
+// Stms :=  E (';' E)*
+
+// v2
+// Val  :=  <String> | <INT>
+// LHS  :=  <String> | <Special>
+// E    :=  Val | (LHS Val*)
 // Stms :=  E (';' E)*
 
 fn parse_expression(parse_start_span: TextSpan, mut tokens: MyIt) -> (MyIt, AST) {
@@ -472,7 +492,7 @@ fn parse_expression(parse_start_span: TextSpan, mut tokens: MyIt) -> (MyIt, AST)
         // because otherwise we skip the rparen token
         None => AST::Err(
             parse_start_span,
-            String::from("Expected expression but reached end of input!"),
+            String::from("Parse expected expression but reached end of input!"),
         ),
         Some(token) => match token {
             Token::INT(span, n) => AST::Val(*span, n.clone()),
@@ -488,7 +508,7 @@ fn parse_expression(parse_start_span: TextSpan, mut tokens: MyIt) -> (MyIt, AST)
                 match tokens.next() {
                     None => AST::Err(
                         TextSpan::from_ast(&ast2),
-                        String::from("Expected right parens but reached end of input!"),
+                        String::from("Parse expected right parens but reached end of input!"),
                     ),
                     Some(closing) => match closing {
                         Token::RPAREN(end_span) => {
@@ -496,14 +516,14 @@ fn parse_expression(parse_start_span: TextSpan, mut tokens: MyIt) -> (MyIt, AST)
                         }
                         t => AST::Err(
                             TextSpan::from_token(t),
-                            format!("Expected RPAREN, found {}", t.name(),),
+                            format!("Parse expected RPAREN, found {}", t.name(),),
                         ),
                     },
                 }
             }
             t => AST::Err(
                 TextSpan::from_token(t),
-                format!("Expected expression but found {}", t.name()),
+                format!("Parse expected expression but found {}", t.name()),
             ),
         },
     };
@@ -538,14 +558,14 @@ fn parse_module(tokens: &Vec<Token>) -> AST {
     while let Some(token) = it.peek().clone() {
         let parse_start_span = TextSpan::from_token(token);
         match token {
-            Token::ExpressionSeparator(span) => {
+            Token::SEMICOLON(span) => {
                 it.next();
                 ()
             }
             _ => {
                 let expr = AST::Err(
                     parse_start_span,
-                    format!("Expected EXPRESSION_SEPARATOR, found {}", token.name(),),
+                    format!("Parse expected EXPRESSION_SEPARATOR, found {}", token.name(),),
                 );
                 expressions.push(expr);
             }
@@ -647,7 +667,6 @@ fn main() -> io::Result<()> {
     if module.has_errors() {
         module.report_errors(String::from(file_arg));
         std::process::exit(1);
-        // return Ok(());
     }
 
     if arg_set.contains("--format") {
