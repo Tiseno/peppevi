@@ -545,7 +545,7 @@ impl<'parsing> MyIt<'parsing> {
 }
 
 #[allow(unused)]
-fn parse_module(tokens: &Vec<Token>) -> AST {
+fn parse_block(tokens: &Vec<Token>) -> AST {
     let mut it = MyIt {
         tokens: tokens.iter().peekable(),
     };
@@ -602,7 +602,6 @@ Options:
     --format            Parse and print the formatted source to stdout
     --stdin-format      Parse from stdin and print the formatted source to stdout
     --parse             Parse and print AST
-    --check             Type check the program
 "#
     );
 }
@@ -625,11 +624,11 @@ fn main() -> io::Result<()> {
         let lexed = lex_stdin();
         match lexed {
             Ok(tokens) => {
-                let module = parse_module(&tokens);
-                if module.has_errors() {
+                let block = parse_block(&tokens);
+                if block.has_errors() {
                     std::process::exit(1);
                 }
-                module.pretty_print();
+                block.pretty_print();
                 return Ok(());
             }
             _ => {
@@ -663,27 +662,27 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let module = parse_module(&tokens);
-    if module.has_errors() {
-        module.report_errors(String::from(file_arg));
+    let block = parse_block(&tokens);
+    if block.has_errors() {
+        block.report_errors(String::from(file_arg));
         std::process::exit(1);
     }
 
     if arg_set.contains("--format") {
-        module.pretty_print();
+        block.pretty_print();
         return Ok(());
     }
 
     if arg_set.contains("--parse") {
-        module.print();
+        block.print();
         return Ok(());
     }
 
-    // let ir = type_check(&module);
-
-    if arg_set.contains("--check") {
-        return Ok(());
-    }
+    // let ir = type_check(&block);
+    // if arg_set.contains("--check") {
+    //     println!("--check is not implemented yet");
+    //     std::process::exit(1);
+    // }
 
     if arg_set.contains("--interpret") {
         println!("--interpret is not implemented yet");
