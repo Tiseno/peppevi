@@ -51,10 +51,7 @@ impl TextSpan {
         let start = min(self.start, other.start);
         let end = max(self.end, other.end);
 
-        Self {
-            start: start,
-            end: end,
-        }
+        Self { start, end }
     }
 
     fn new(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self {
@@ -146,16 +143,7 @@ fn read_int(mut chars: CountingChars) -> (CountingChars, Token) {
         line: chars.line,
         col: chars.col,
     };
-    (
-        chars,
-        Token::INT(
-            TextSpan {
-                start: start,
-                end: end,
-            },
-            n,
-        ),
-    )
+    (chars, Token::INT(TextSpan { start, end }, n))
 }
 
 fn read_id(mut chars: CountingChars) -> (CountingChars, Token) {
@@ -176,16 +164,7 @@ fn read_id(mut chars: CountingChars) -> (CountingChars, Token) {
         line: chars.line,
         col: chars.col,
     };
-    (
-        chars,
-        Token::ID(
-            TextSpan {
-                start: start,
-                end: end,
-            },
-            s,
-        ),
-    )
+    (chars, Token::ID(TextSpan { start, end }, s))
 }
 
 fn read_paren(mut chars: CountingChars) -> (CountingChars, Token) {
@@ -200,15 +179,9 @@ fn read_paren(mut chars: CountingChars) -> (CountingChars, Token) {
             col: chars.col,
         };
         if c == '(' {
-            Token::LPAREN(TextSpan {
-                start: start,
-                end: end,
-            })
+            Token::LPAREN(TextSpan { start, end })
         } else {
-            Token::RPAREN(TextSpan {
-                start: start,
-                end: end,
-            })
+            Token::RPAREN(TextSpan { start, end })
         }
     } else {
         let end = TextPosition {
@@ -216,10 +189,7 @@ fn read_paren(mut chars: CountingChars) -> (CountingChars, Token) {
             col: chars.col,
         };
         Token::INVALID(
-            TextSpan {
-                start: start,
-                end: end,
-            },
+            TextSpan { start, end },
             String::from("Lex tried to read parenthesis but found nothing."),
         )
     };
@@ -238,23 +208,11 @@ fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
             col: chars.col,
         };
         if c == ';' {
-            (
-                chars,
-                Token::SEMICOLON(TextSpan {
-                    start: start,
-                    end: end,
-                }),
-            )
+            (chars, Token::SEMICOLON(TextSpan { start, end }))
         } else {
             (
                 chars,
-                Token::SPECIAL(
-                    TextSpan {
-                        start: start,
-                        end: end,
-                    },
-                    c.to_string(),
-                ),
+                Token::SPECIAL(TextSpan { start, end }, c.to_string()),
             )
         }
     } else {
@@ -265,10 +223,7 @@ fn read_special(mut chars: CountingChars) -> (CountingChars, Token) {
         (
             chars,
             Token::INVALID(
-                TextSpan {
-                    start: start,
-                    end: end,
-                },
+                TextSpan { start, end },
                 String::from("Lex tried to read special but found nothing."),
             ),
         )
@@ -565,7 +520,10 @@ fn parse_block(tokens: &Vec<Token>) -> AST {
             _ => {
                 let expr = AST::Err(
                     parse_start_span,
-                    format!("Parse expected EXPRESSION_SEPARATOR, found {}", token.name(),),
+                    format!(
+                        "Parse expected EXPRESSION_SEPARATOR, found {}",
+                        token.name(),
+                    ),
                 );
                 expressions.push(expr);
             }
